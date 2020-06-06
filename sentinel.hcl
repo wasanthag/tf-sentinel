@@ -1,3 +1,3 @@
-policy "tags_enforced" {
+policy "restrict-vm-cpu-and-memory" {
     enforcement_level = "soft-mandatory"
 }
