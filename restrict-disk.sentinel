@@ -1,5 +1,5 @@
 # This policy uses the Sentinel tfplan import to require that
-# all VMware VMs obey CPU and memory limits
+# all VMware VMs obey a disk limit
 
 ##### Imports #####
 
@@ -39,14 +39,13 @@ find_resources_from_plan = func(type) {
   return resources
 }
 
-# Validate that all instances of a specified resource type being modified have
-# a specified top-level attribute with a value less than or equal to a max value
-validate_attribute_less_than_value = func(type, attribute, max_value) {
+# Validate that all VMware VMs have disk sizes beneath specified limit
+validate_disk_size = func(disk_limit) {
 
   validated = true
 
-  # Get all resource instances of the specified type
-  resource_instances = find_resources_from_plan(type)
+  # Get all resources of specified type
+  resource_instances = find_resources_from_plan("vsphere_virtual_machine")
 
   # Loop through the resource instances
   for resource_instances as address, r {
@@ -59,31 +58,32 @@ validate_attribute_less_than_value = func(type, attribute, max_value) {
       continue
     }
 
-    # Determine if the attribute is computed
-    if r.diff[attribute].computed else false is true {
-      print("Resource", address, "has attribute", attribute,
-            "that is computed.")
-      # If you want computed values to cause the policy to fail,
-      # uncomment the next line.
-      # validated = false
-    } else {
-      # Validate that the attribute exists
-      if r.applied[attribute] else null is not null {
-        # Validate that each instance has desired value
-        if float(r.applied[attribute]) > max_value {
-          print("Resource", address, "has attribute", attribute, "with value",
-                r.applied[attribute],"that is bigger than the maximum allowed",
-                "value:", max_value)
+    # Initialize disk_count
+    disk_count = -1
+
+    # Get all disks for the VM
+    for r.applied.disk as disk {
+
+      # Increment disk_count for use in computed test
+      disk_count += 1
+
+      # Determine if the attribute is computed
+      if r.diff["disk." + string(disk_count) + ".size"].computed else false is true {
+        print("Virtual machine", address, "has disk", disk.label,
+              "with attribute, disk.size, that is computed.")
+        # If you want computed values to cause the policy to fail,
+        # uncomment the next line.
+        # validated = false
+      } else {
+        # Validate that each disk has valid disk size
+        if int(disk.size) > disk_limit {
+          print("Virtual machine", address, "has disk", disk.label, "with size",
+                disk.size, "that is greater than the limit", disk_limit)
           validated = false
         }
-      } else {
-        # The attribute did not exist
-        print("Resource", address, "is missing attribute", attribute)
-        validated = false
-      } // end attribute exists check
+      } // end computed check
 
-    } // end computed check
-
+    } // end disks
   } // end resource instances
 
   return validated
@@ -91,11 +91,10 @@ validate_attribute_less_than_value = func(type, attribute, max_value) {
 
 ##### Rules #####
 
-# Call the validation functions
-valid_cpu = validate_attribute_less_than_value("vsphere_virtual_machine", "num_cpus", 4)
-valid_memory = validate_attribute_less_than_value("vsphere_virtual_machine", "memory", 8192)
+# Call the validation function
+vm_disks_validated = validate_disk_size(100)
 
 # Main rule
 main = rule {
-  valid_cpu and valid_memory
+  vm_disks_validated is true
 }
